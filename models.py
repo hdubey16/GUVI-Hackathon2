@@ -37,3 +37,8 @@ class CallbackPayload(BaseModel):
     totalMessagesExchanged: int
     extractedIntelligence: ExtractedIntelligence
     agentNotes: Optional[str] = None
+
+class AgentResponse(BaseModel):
+    """Response format matching problem statement requirements"""
+    status: str
+    reply: str

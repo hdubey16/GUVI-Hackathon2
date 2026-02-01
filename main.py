@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException, Header, BackgroundTasks
-from typing import Optional
+from typing import Optional, Dict
 import os
 import logging
-from models import MessageRequest, HoneyPotResponse, EngagementMetrics, ExtractedIntelligence, CallbackPayload
+from models import MessageRequest, AgentResponse, ExtractedIntelligence, CallbackPayload
 from agent import agent_instance
 from utils import send_final_result
 
@@ -15,7 +15,14 @@ app = FastAPI(title="Agentic Honey-Pot API")
 # API Security
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "mysecretkey")
 
-@app.post("/analyze", response_model=HoneyPotResponse)
+# Session tracking for conversation state
+# In production, use Redis or database
+session_state: Dict[str, Dict] = {}
+
+# Minimum messages before sending callback
+MIN_MESSAGES_FOR_CALLBACK = 5
+
+@app.post("/analyze", response_model=AgentResponse)
 async def analyze_message(
     request: MessageRequest, 
     background_tasks: BackgroundTasks,
@@ -23,74 +30,93 @@ async def analyze_message(
 ):
     """
     Main endpoint to analyze message, detect scam, and engage agent.
-    Handles both test requests (minimal payload) and full scam detection requests.
+    Always returns a reply to maintain conversation.
+    Sends callback after sufficient engagement (5+ messages).
     """
     if x_api_key != API_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Invalid API Key")
 
-    # Handle test/minimal requests (when message is None or empty)
-    if not request.message or not request.message.text:
-        logger.info(f"Test request received for session: {request.sessionId}")
-        return HoneyPotResponse(
+    session_id = request.sessionId
+    message_text = request.message.text if request.message else ""
+    
+    # Initialize session state if new
+    if session_id not in session_state:
+        session_state[session_id] = {
+            "scam_detected": False,
+            "message_count": 0,
+            "callback_sent": False,
+            "extracted_intel": ExtractedIntelligence()
+        }
+    
+    # Increment message count
+    session_state[session_id]["message_count"] += 1
+    current_count = session_state[session_id]["message_count"]
+    
+    logger.info(f"Session {session_id}: Message #{current_count}")
+    
+    # Handle empty/test messages
+    if not message_text:
+        logger.info(f"Empty message for session: {session_id}")
+        return AgentResponse(
             status="success",
-            scamDetected=False,
-            engagementMetrics=EngagementMetrics(
-                totalMessagesExchanged=0,
-                engagementDurationSeconds=0
-            ),
-            extractedIntelligence=ExtractedIntelligence(),
-            agentNotes="Test request - endpoint is active and secured"
+            reply="Hello, how can I help you?"
         )
-
-    # 1. Detect Scam
+    
+    # 1. Detect Scam (always analyze)
     is_scam, reason = agent_instance.analyze_scam(
-        request.message.text, 
+        message_text, 
         request.conversationHistory
     )
     
-    # Check if scam was already detected in history (heuristic: consistent scammer behavior)
-    # For now, we rely on the current analysis or if the user passed previous flags (not in schema).
-    # We'll trust the agent's analysis of the full history + current message.
-
-    response_text = ""
-    extracted_intel = ExtractedIntelligence()
+    # Update session state
+    if is_scam and not session_state[session_id]["scam_detected"]:
+        session_state[session_id]["scam_detected"] = True
+        logger.info(f"Session {session_id}: Scam detected - {reason}")
     
-    if is_scam:
-        # 2. Extract Intelligence
+    # 2. Generate Reply (ALWAYS - this is key for multi-turn conversation)
+    if is_scam or session_state[session_id]["scam_detected"]:
+        # Engage as gullible victim to extract intelligence
+        reply_text = agent_instance.generate_response(
+            message_text, 
+            request.conversationHistory
+        )
+        
+        # Extract intelligence in background
         extracted_intel = agent_instance.extract_intelligence(
-            request.message.text, 
+            message_text, 
             request.conversationHistory
         )
-        
-        # 3. Generate Response
-        response_text = agent_instance.generate_response(
-            request.message.text, 
+        session_state[session_id]["extracted_intel"] = extracted_intel
+    else:
+        # Generate neutral response for non-scam messages
+        reply_text = agent_instance.generate_neutral_response(
+            message_text,
             request.conversationHistory
         )
+    
+    # 3. Send Callback ONLY after sufficient engagement
+    if (session_state[session_id]["scam_detected"] and 
+        current_count >= MIN_MESSAGES_FOR_CALLBACK and 
+        not session_state[session_id]["callback_sent"]):
         
-        # 4. Trigger Callback (Background Task)
-        # We construct the payload for the callback
-        # Calculate heuristics for "totalMessagesExchanged"
-        total_messages = len(request.conversationHistory) + 2 # history + current + reply
+        logger.info(f"Session {session_id}: Sending final callback (after {current_count} messages)")
         
         callback_payload = CallbackPayload(
-            sessionId=request.sessionId,
+            sessionId=session_id,
             scamDetected=True,
-            totalMessagesExchanged=total_messages,
-            extractedIntelligence=extracted_intel,
-            agentNotes=f"Scam detected: {reason}"
+            totalMessagesExchanged=current_count,
+            extractedIntelligence=session_state[session_id]["extracted_intel"],
+            agentNotes=f"Scam detected: {reason}. Engaged for {current_count} messages."
         )
         
-        # Send callback in background to avoid blocking response
+        # Mark callback as sent
+        session_state[session_id]["callback_sent"] = True
+        
+        # Send callback in background
         background_tasks.add_task(send_final_result, callback_payload)
-
-    return HoneyPotResponse(
+    
+    # 4. Return simple response format (as per problem statement)
+    return AgentResponse(
         status="success",
-        scamDetected=is_scam,
-        engagementMetrics=EngagementMetrics(
-            totalMessagesExchanged=len(request.conversationHistory) + 1
-            # duration not easily calculable without session state, omitting or 0
-        ),
-        extractedIntelligence=extracted_intel,
-        agentNotes=response_text if is_scam else "No scam detected."
+        reply=reply_text
     )

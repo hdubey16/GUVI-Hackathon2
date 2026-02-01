@@ -138,4 +138,36 @@ class HoneyPotAgent:
             logger.error(f"Error in response generation: {e}")
             return "I am confused, can you explain that again?"
 
+    def generate_neutral_response(self, current_message: str, history: List[Message]) -> str:
+        """
+        Generates a neutral/cautious response for non-scam messages.
+        """
+        if not current_message:
+            return "Hello, how can I help you?"
+        
+        history_text = "\n".join([f"{msg.sender}: {msg.text}" for msg in history])
+        prompt = f"""
+        You are a cautious person receiving a message. 
+        Respond naturally and briefly. Be polite but slightly skeptical.
+        Do not reveal you are an AI. Keep responses short (1-2 sentences).
+        
+        Conversation History:
+        {history_text}
+        
+        Current Message:
+        {current_message}
+        
+        Generate a brief, natural response.
+        """
+        
+        try:
+            response = self.model.generate_content(
+                prompt,
+                generation_config=TEXT_GENERATION_CONFIG
+            )
+            return response.text.strip()
+        except Exception as e:
+            logger.error(f"Error in neutral response generation: {e}")
+            return "I'm not sure I understand. Can you clarify?"
+
 agent_instance = HoneyPotAgent()
