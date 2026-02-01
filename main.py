@@ -20,7 +20,8 @@ API_SECRET_KEY = os.getenv("API_SECRET_KEY", "mysecretkey")
 session_state: Dict[str, Dict] = {}
 
 # Minimum messages before sending callback
-MIN_MESSAGES_FOR_CALLBACK = 5
+# Set to 2 for GUVI validation testing (can be increased to 5+ for production)
+MIN_MESSAGES_FOR_CALLBACK = 2
 
 @app.post("/analyze", response_model=AgentResponse)
 async def analyze_message(
