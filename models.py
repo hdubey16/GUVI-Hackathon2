@@ -3,13 +3,13 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 class Message(BaseModel):
-    sender: str  # "scammer" or "user" (agent)
-    text: str
-    timestamp: datetime
+    sender: Optional[str] = "scammer"  # "scammer" or "user" (agent)
+    text: Optional[str] = ""
+    timestamp: Optional[datetime] = None
 
 class MessageRequest(BaseModel):
-    sessionId: str
-    message: Message
+    sessionId: Optional[str] = "test-session"
+    message: Optional[Message] = None
     conversationHistory: List[Message] = []
     metadata: Optional[Dict[str, Any]] = None
 

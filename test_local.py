@@ -45,6 +45,18 @@ def test_normal_message():
     except Exception as e:
         print(f"Failed to connect: {e}")
 
+def test_minimal_payload():
+    print("\n--- Testing Minimal Payload (Test Request) ---")
+    payload = {}
+    
+    try:
+        response = requests.post(URL, json=payload, headers=HEADERS)
+        print(f"Status: {response.status_code}")
+        print("Response:", json.dumps(response.json(), indent=2))
+    except Exception as e:
+        print(f"Failed to connect: {e}")
+
 if __name__ == "__main__":
+    test_minimal_payload()
     test_scam_message()
     test_normal_message()

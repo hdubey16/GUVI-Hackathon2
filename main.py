@@ -23,9 +23,24 @@ async def analyze_message(
 ):
     """
     Main endpoint to analyze message, detect scam, and engage agent.
+    Handles both test requests (minimal payload) and full scam detection requests.
     """
     if x_api_key != API_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Invalid API Key")
+
+    # Handle test/minimal requests (when message is None or empty)
+    if not request.message or not request.message.text:
+        logger.info(f"Test request received for session: {request.sessionId}")
+        return HoneyPotResponse(
+            status="success",
+            scamDetected=False,
+            engagementMetrics=EngagementMetrics(
+                totalMessagesExchanged=0,
+                engagementDurationSeconds=0
+            ),
+            extractedIntelligence=ExtractedIntelligence(),
+            agentNotes="Test request - endpoint is active and secured"
+        )
 
     # 1. Detect Scam
     is_scam, reason = agent_instance.analyze_scam(
